@@ -2,6 +2,7 @@ import asyncio
 import random
 from os import getenv
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.utils import keyboard
 from dotenv import load_dotenv
 from aiogram import F, types, Dispatcher, Bot
@@ -33,10 +34,6 @@ def get_bet_keyboard():
         types.InlineKeyboardButton(text="100", callback_data="bet_100")
     )
     builder.row(
-        types.InlineKeyboardButton(text="🔴 Красное", callback_data="color_red"),
-        types.InlineKeyboardButton(text="⚫ Чёрное", callback_data="color_black")
-    )
-    builder.row(
         types.InlineKeyboardButton(text="Отмена", callback_data="cancel")
     )
     return builder.as_markup()
@@ -53,21 +50,68 @@ def get_numbers_keyboard():
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
+    # Создаем клавиатуру
+    builder = InlineKeyboardBuilder()
+    builder.add(types.InlineKeyboardButton(
+        text="🎰 Крутить рулетку",
+        callback_data="play_roulette"
+    ))
+
+    # Отправляем фото с приветствием
+    try:
+        await message.answer_photo(
+            photo='AgACAgIAAxkBAANqaBnoIPBHWuZTZBziKsMzJOWbSdkAAl33MRucKdBII-fYvq4E-_0BAAMCAAN5AAM2BA',
+            caption=(
+                "🎉 <b>Добро пожаловать в BluexRoulette!</b> 🎉\n\n"
+                "Здесь начинается ваше захватывающее путешествие в мир азартных игр!\n"
+                "🍀 <i>Почувствуйте атмосферу казино, сделайте ставку и позвольте удаче улыбнуться вам!</i>\n\n"
+                "🔥 <b>Готовы испытать свою удачу?</b> Вперёд к большим выигрышам!"
+            ),
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest:
+        # Фолбэк на случай проблем с фото
+        await message.answer(
+            text=(
+                "🎰 <b>BluexRoulette приветствует вас!</b> 🎰\n\n"
+                "Готовы к адреналину и крупным выигрышам?\n"
+                "Каждый спин может изменить вашу жизнь!\n\n"
+                "<i>Сделайте ставку и докажите свою удачу!</i> 🔥"
+            ),
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML"
+        )
+
+@dp.message(lambda msg: msg.photo)  # Ловим любое фото
+async def handle_photo(message: types.Message):
+    file_id = message.photo[-1].file_id  # Берём ID в максимальном качестве
     await message.answer(
-        "🎰 Добро пожаловать в рулетку!",
-        reply_markup=InlineKeyboardBuilder().add(
-            types.InlineKeyboardButton(text="🎰 Играть в рулетку", callback_data="play_roulette")
-        ).as_markup()
+        f"🖼 <b>Фото принято!</b>\n"
+        f"🔑 <code>{file_id}</code> — твой file_id\n"
+        f"Используй его для сохранения или пересылки!",
+        parse_mode="HTML"
     )
 
 
 @dp.callback_query(F.data == "play_roulette")
 async def start_roulette(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
-        "🎰 Рулетка\nВыберите ставку:",
-        reply_markup=get_bet_keyboard()
-    )
+    try:
+        # Пытаемся отредактировать текст сообщения
+        await callback.message.edit_text(
+            "🎰 Рулетка\nВыберите ставку:",
+            reply_markup=get_bet_keyboard()
+        )
+    except TelegramBadRequest:
+        # Если сообщение было фото - удаляем его и отправляем новое текстовое
+        await callback.message.delete()
+        await callback.message.answer(
+            "🎰 Рулетка\nВыберите ставку:",
+            reply_markup=get_bet_keyboard()
+        )
+
     await state.set_state(RouletteStates.choosing_bet)
+    await callback.answer()
 
 
 @dp.callback_query(RouletteStates.choosing_bet, F.data.startswith("bet_"))
